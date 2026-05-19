@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+*.pyo
+.DS_Store
+*.db
+# Conversation state files (user data)
+*-chat.json
+*-conv.json
