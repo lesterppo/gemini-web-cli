@@ -1,6 +1,6 @@
 # gemini-cli
 
-Zero-config, AI-native CLI tools for Google Gemini via browser-cookie authentication. **No API key needed.**
+Zero-config, AI-native CLI for Google Gemini via browser-cookie authentication. **No API key needed.**
 
 Uses your existing Gemini web session (Firefox/Chrome/Edge cookies) to send prompts, images, and documents — with multi-turn conversations, dynamic model selection, and token-optimized output designed for both human and AI agent consumption.
 
@@ -28,29 +28,27 @@ python gemini.py -f report.pdf "Summarize this"
 python gemini.py -c chat.json "My favorite color is blue."
 python gemini.py -c chat.json "What color did I say?"
 
-# UI/UX visual critic (fixed expert prompt)
-python critic.py screenshot.png
-
 # Pipe from stdin
 echo "What is 2+2?" | python gemini.py
 ```
 
 ## Features
 
-| Feature | gemini.py | critic.py |
-|---|---|---|
-| Text prompts (positional, `-p`, stdin) | Yes | `--prompt` override |
-| Image attachments (`-i`, repeatable) | Yes | Required |
-| Document attachments (`-f`, repeatable) | Yes | No |
-| Multi-turn conversations (`-c`, `--new`) | Yes | No |
-| Model selection (`-m flash/pro/thinking`) | Yes | No |
-| Thinking level (`--thinking`) | Yes | No |
-| Dynamic model discovery (`--list-models`) | Yes | No |
-| JSON output (`--json`) | Yes | Yes |
-| File output (`-o`) | Yes | Yes |
-| Concise mode (`--brief`) | Yes | No |
-| Auto-retry on auth expiry | Yes | Yes |
-| Zero-config auth (browser cookies) | Yes | Yes |
+| Feature | Flag |
+|---|---|
+| Text prompts | positional args, `-p`, or stdin |
+| Image attachments | `-i FILE` (repeatable) |
+| Document attachments | `-f FILE` (repeatable) |
+| Multi-turn conversations | `-c FILE`, `--new` |
+| Model selection | `-m flash/pro/thinking` |
+| Thinking level | `--thinking standard/plus/extended` |
+| Dynamic model discovery | `--list-models` |
+| JSON output | `--json` |
+| File output (agent-optimized) | `-o FILE` |
+| Concise mode | `--brief` |
+| Silent mode | `-q` |
+| Auto-retry on auth expiry | default (disable with `--no-retry`) |
+| Zero-config auth | browser cookies or env vars |
 
 ### Model Selection
 
@@ -114,4 +112,4 @@ Auto-quiet automatically suppresses stderr logs when stdout is piped (agent/subp
 
 ## AI Agent Skills
 
-The `skills/` directory contains reusable skill definitions for AI coding agents (Claude Code, etc.) that describe how to invoke these tools with optimal token efficiency.
+The `skills/` directory contains reusable skill definitions for AI coding agents (Claude Code, etc.) that describe how to invoke this tool with optimal token efficiency.
