@@ -1,6 +1,6 @@
-# gemini-cli
+# gemini-web-cli
 
-Zero-config, AI-native CLI for Google Gemini via browser-cookie authentication. **No API key needed.**
+Zero-config, cross-platform CLI for Google Gemini via browser-cookie authentication. **No API key needed.** Works on Windows, Linux, macOS, and WSL.
 
 Uses your existing Gemini web session (Firefox/Chrome/Edge cookies) to send prompts, images, and documents — with multi-turn conversations, dynamic model selection, and token-optimized output designed for both human and AI agent consumption.
 
@@ -115,6 +115,16 @@ Auto-quiet automatically suppresses stderr logs when stdout is piped (agent/subp
 - [browser-cookie3](https://github.com/borisbabic/browser_cookie3) — cross-browser cookie extraction
 - [pillow](https://python-pillow.org/) — image handling
 
+## Platform Support
+
+| Platform | Browser Priority | Notes |
+|---|---|---|
+| Windows | Firefox → Chrome → Edge | Firefox needs no admin to install |
+| Linux / WSL | Chrome → Firefox → Edge | Install Chrome user-level via `~/.local/bin` |
+| macOS | Chrome → Firefox → Safari | — |
+
+All platforms support `-l`/`--login` for first-run browser auth and `GEMINI_SID`/`GEMINI_TS` env vars as fallback.
+
 ## AI Agent Skills
 
-The `skills/` directory contains reusable skill definitions for AI coding agents (Claude Code, etc.) that describe how to invoke this tool with optimal token efficiency.
+The `skills/` directory contains reusable skill definitions for AI coding agents (Claude Code, Hermes, etc.) that describe how to invoke this tool with optimal token efficiency.
