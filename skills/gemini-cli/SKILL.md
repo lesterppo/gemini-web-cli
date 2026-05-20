@@ -11,10 +11,10 @@ Repo: https://github.com/lesterppo/gemini-web-cli
 
 ## Platform Paths
 
-| Platform | Command | Source |
-|---|---|---|
-| **Windows** | `python C:\Users\Peter\gemini.py` | `C:\Users\Peter\gemini.py` |
-| **Linux/WSL** | `gemini-cli` | `~/gemini-cli/gemini.py` (wrapper at `~/.local/bin/gemini-cli`) |
+| Platform | Command |
+|---|---|
+| **Any** | `python gemini.py` (from repo directory) |
+| **Linux/WSL** | `gemini-cli` (after adding wrapper to PATH) |
 
 ## Quick Start
 
