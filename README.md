@@ -15,6 +15,9 @@ Log into [gemini.google.com](https://gemini.google.com) in Firefox (recommended 
 ## Quick Start
 
 ```bash
+# First run (or after logout) — opens browser for login, auto-captures cookies
+python gemini.py -l "Hello"
+
 # Text prompt
 python gemini.py "Explain quantum computing in 3 bullet points"
 
@@ -47,6 +50,7 @@ echo "What is 2+2?" | python gemini.py
 | File output (agent-optimized) | `-o FILE` |
 | Concise mode | `--brief` |
 | Silent mode | `-q` |
+| Browser login flow | `-l` / `--login` |
 | Auto-retry on auth expiry | default (disable with `--no-retry`) |
 | Zero-config auth | browser cookies or env vars |
 
@@ -99,10 +103,11 @@ Auto-quiet automatically suppresses stderr logs when stdout is piped (agent/subp
 ## Auth
 
 1. **Primary:** Auto-scans browser cookie databases for `__Secure-1PSID` and `__Secure-1PSIDTS`
-   - Firefox first (no admin needed on Windows)
-   - Then Chrome, Edge, Safari
-2. **Fallback:** `GEMINI_SID` and `GEMINI_TS` environment variables
-3. **Auto-retry:** On session expiry, re-scans cookies, opens `gemini.google.com` for re-auth, polls every 5s for 60s
+   - **Linux/macOS/WSL:** Chrome first, then Firefox, Edge, Safari
+   - **Windows:** Firefox first (no admin needed), then Chrome, Edge, Safari
+2. **First-run:** `-l` / `--login` opens browser for login, polls every 3s for 120s until cookies appear, then continues automatically
+3. **Fallback:** `GEMINI_SID` and `GEMINI_TS` environment variables
+4. **Auto-retry:** On session expiry, re-scans cookies, then opens browser for re-auth
 
 ## Dependencies
 

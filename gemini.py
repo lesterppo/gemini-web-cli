@@ -10,6 +10,7 @@ Examples:
   python gemini.py -f data.csv -i plot.png "Analyze this data"
   cat prompt.txt | python gemini.py -i screenshot.png
   python gemini.py -i ui.png --brief -o review.md -q
+  python gemini.py -l  "Ask a question after logging in via browser"
 
 Multi-turn conversations:
   python gemini.py -c chat.json "My favorite color is blue."
@@ -65,13 +66,23 @@ class GeminiCLI:
     # ── auth ──────────────────────────────────────────────
 
     def extract_cookies(self) -> tuple:
-        browsers = [
-            ('firefox', browser_cookie3.firefox),
-            ('chrome', browser_cookie3.chrome),
-            ('edge', browser_cookie3.edge),
-            ('safari', browser_cookie3.safari),
-        ]
-        for name, fetch_func in browsers:
+        # Linux/Mac: Chrome first (most common on desktop Linux & WSL).
+        # Windows: Firefox first (no admin needed, most reliable cookie DB).
+        if sys.platform == 'win32':
+            browser_order = [
+                ('firefox', browser_cookie3.firefox),
+                ('chrome', browser_cookie3.chrome),
+                ('edge', browser_cookie3.edge),
+                ('safari', browser_cookie3.safari),
+            ]
+        else:
+            browser_order = [
+                ('chrome', browser_cookie3.chrome),
+                ('firefox', browser_cookie3.firefox),
+                ('edge', browser_cookie3.edge),
+                ('safari', browser_cookie3.safari),
+            ]
+        for name, fetch_func in browser_order:
             try:
                 cj = fetch_func(domain_name='.google.com')
                 sid, ts = None, None
@@ -90,6 +101,26 @@ class GeminiCLI:
     def is_auth_error(self, error_msg: str) -> bool:
         upper = error_msg.upper()
         return any(p.upper() in upper for p in AUTH_EXPIRED_PATTERNS)
+
+    def _browser_login_flow(self, cookie_source: str) -> tuple[str | None, str | None]:
+        """Open browser for Gemini login, poll for fresh cookies. Returns (sid, ts)."""
+        if not sys.stdout.isatty():
+            self.log("Not a TTY — can't start interactive login. Set GEMINI_SID/GEMINI_TS env vars.")
+            return None, None
+
+        self.log("Opening gemini.google.com for login...")
+        webbrowser.open("https://gemini.google.com")
+
+        self.log("Waiting for cookies (polling every 3s, 120s timeout)...")
+        for i in range(40):
+            time.sleep(3)
+            new_sid, new_ts = self.extract_cookies()
+            if new_sid:
+                self.log(f"Cookies acquired after ~{(i + 1) * 3}s")
+                return new_sid, new_ts
+            if (i + 1) % 10 == 0:
+                self.log(f"Still waiting... ({(i + 1) * 3}s)")
+        return None, None
 
     # ── model resolution ──────────────────────────────────
 
@@ -270,6 +301,7 @@ class GeminiCLI:
   python gemini.py -f report.pdf "Summarize this document"
   echo "Hello in French" | python gemini.py
   python gemini.py -i ui.png --brief -o review.md -q
+  python gemini.py -l  "Auto-login via browser"
 
 Multi-turn conversations:
   python gemini.py -c chat.json "My favorite color is blue."
@@ -305,6 +337,8 @@ Model selection (auto-discovered at runtime, no hardcoded names):
             help="Structured JSON for agent consumption")
         parser.add_argument("--brief", action="store_true",
             help="Prepend 'Be concise.' to the prompt for shorter responses")
+        parser.add_argument("-l", "--login", action="store_true",
+            help="Open browser to sign into gemini.google.com and auto-capture cookies")
         parser.add_argument("-q", "--quiet", action="store_true",
             help="Suppress progress messages on stderr")
         parser.add_argument("--no-retry", action="store_true",
@@ -371,13 +405,16 @@ Model selection (auto-discovered at runtime, no hardcoded names):
         # ── Auth ──
         sid = os.getenv("GEMINI_SID")
         ts = os.getenv("GEMINI_TS")
-        cookie_source = "env"
+        cookie_source = "env" if (sid and ts) else "browser"
         if not sid or not ts:
             sid, ts = self.extract_cookies()
-            cookie_source = "browser"
         if not sid or not ts:
-            self.fail("AUTH_EXPIRED",
-                "No Gemini cookies. Set GEMINI_SID/GEMINI_TS env vars or log into gemini.google.com.")
+            if args.login:
+                sid, ts = self._browser_login_flow("browser")
+            else:
+                self.log("No cookies found. Run with --login to open browser login.")
+                self.fail("AUTH_EXPIRED",
+                    "No Gemini cookies. Use --login to sign in via browser, or set GEMINI_SID/GEMINI_TS env vars.")
 
         # ── Model (init client early so resolve_model can query live list) ──
         if args.model or args.list_models:
@@ -401,7 +438,6 @@ Model selection (auto-discovered at runtime, no hardcoded names):
 
         # ── Generate with retry ──
         max_rounds = 3 if not args.no_retry else 1
-        browser_opened = False
 
         for attempt in range(max_rounds):
             self.log(f"Attempt {attempt + 1}/{max_rounds}...")
@@ -428,33 +464,24 @@ Model selection (auto-discovered at runtime, no hardcoded names):
             if attempt == max_rounds - 1:
                 break
 
+            # Re-scan cookies first (may have been refreshed in another window)
             self.log("Re-scanning browser cookies...")
+            new_sid, new_ts = self.extract_cookies()
+            if new_sid and new_sid != sid:
+                sid, ts = new_sid, new_ts
+                cookie_source = "browser"
+                self.client = None
+                self.log("Found fresher cookies, retrying...")
+                continue
 
-            if cookie_source == "env":
-                new_sid, new_ts = self.extract_cookies()
-                if new_sid and new_sid != sid:
-                    sid, ts = new_sid, new_ts
-                    cookie_source = "browser"
-                    self.client = None
-                    self.log("Found fresher cookies in browser, retrying...")
-                    continue
-
-            if not browser_opened and cookie_source != "env":
-                self.log("Opening gemini.google.com for re-authentication...")
-                webbrowser.open("https://gemini.google.com")
-                browser_opened = True
-
-                self.log("Waiting for fresh cookies (polling every 5s, 60s timeout)...")
-                for _ in range(12):
-                    time.sleep(5)
-                    new_sid, new_ts = self.extract_cookies()
-                    if new_sid and new_sid != sid:
-                        sid, ts = new_sid, new_ts
-                        self.client = None
-                        self.log("Fresh cookies detected, retrying...")
-                        break
-                else:
-                    self.log("No fresh cookies found in 60s, giving up.")
+            # Open browser for re-auth
+            new_sid, new_ts = self._browser_login_flow(cookie_source)
+            if new_sid:
+                sid, ts = new_sid, new_ts
+                cookie_source = "browser"
+                self.client = None
+            else:
+                break
 
         self.fail("AUTH_EXPIRED",
             "Gemini session expired. Re-login at gemini.google.com and retry.")
