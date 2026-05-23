@@ -43,6 +43,10 @@ AUTH_EXPIRED_PATTERNS = [
     "User is not authenticated",
 ]
 
+SEARCH_GEM_NAME = "Gemini search"
+SEARCH_GEM_DESCRIPTION = "Headless Search Grounding Proxy — returns ultra-dense positional-array JSON (txt + img modes) for AI agent consumption"
+SEARCH_GEM_PROMPT_FILE = Path(__file__).resolve().parent / "search-gem-prompt.txt"
+
 
 class ChatRef:
     """Thin wrapper so gemini_webapi can read .metadata from the chat parameter."""
@@ -91,7 +95,7 @@ class GeminiCLI:
                         sid = c.value
                     elif c.name == '__Secure-1PSIDTS':
                         ts = c.value
-                if sid and ts:
+                if sid:
                     self.log(f"Cookies from {name}")
                     return sid, ts
             except Exception:
@@ -183,21 +187,79 @@ class GeminiCLI:
         if len(matches) == 1:
             return matches[0]
 
-        # Alias matching
+        # Alias matching — prefer gemini-* API names over display names
+        def _prefer_api_name(models: list) -> str:
+            gemini = [m for m in models if m.startswith("gemini-")]
+            return gemini[0] if gemini else models[0]
+
         if q in ("flash", "fast", "speed"):
-            flash = [v for k, v in name_map.items() if "flash" in k]
+            flash = [v for k, v in name_map.items() if "flash" in k and "lite" not in k]
+            if not flash:
+                flash = [v for k, v in name_map.items() if "flash" in k]
             if flash:
-                return flash[0]
+                return _prefer_api_name(flash)
         if q in ("pro", "best", "smart"):
             pro = [v for k, v in name_map.items() if "pro" in k]
             if pro:
-                return pro[0]
+                return _prefer_api_name(pro)
         if q in ("lite", "cheap", "small"):
             lite = [v for k, v in name_map.items() if "lite" in k]
             if lite:
                 return lite[0]
 
         return user_input
+
+    # ── gem resolution ────────────────────────────────────
+
+    def resolve_gem(self, user_input: str) -> str | None:
+        """Resolve a Gem name or ID to a Gem ID string. Returns gem_id or raises."""
+        if not user_input:
+            return None
+        try:
+            gem = self.client.gems.get(name=user_input)
+            if gem:
+                return gem.id
+            gem = self.client.gems.get(id=user_input)
+            if gem:
+                return gem.id
+        except RuntimeError:
+            pass
+        # If gems not fetched or not found, pass through as raw ID
+        return user_input
+
+    async def fetch_and_list_gems(self):
+        """Fetch gems and return a formatted string for display."""
+        await self.client.fetch_gems()
+        gems = self.client.gems
+        lines = []
+        for gid, g in gems.items():
+            ptype = "system" if g.predefined else "user"
+            lines.append(f"  [{ptype}] {g.name}  (id: {gid})")
+            if g.description:
+                lines.append(f"         {g.description}")
+        return "\n".join(lines) if lines else "  No gems found."
+
+    async def setup_search_gem(self):
+        """Create or update the 'Gemini search' Gem with the optimized search grounding prompt."""
+        prompt = SEARCH_GEM_PROMPT_FILE.read_text(encoding="utf-8").strip()
+        await self.client.fetch_gems()
+
+        existing = self.client.gems.get(name=SEARCH_GEM_NAME)
+        if existing:
+            if existing.prompt and existing.prompt.strip() == prompt:
+                self.log(f"Gem '{SEARCH_GEM_NAME}' already exists with current prompt (id: {existing.id})")
+                return existing.id
+            self.log(f"Updating Gem '{SEARCH_GEM_NAME}' (id: {existing.id})...")
+            await self.client.update_gem(gem=existing.id, name=SEARCH_GEM_NAME,
+                                         prompt=prompt, description=SEARCH_GEM_DESCRIPTION)
+            self.log(f"Gem '{SEARCH_GEM_NAME}' updated.")
+            return existing.id
+
+        self.log(f"Creating Gem '{SEARCH_GEM_NAME}'...")
+        gem = await self.client.create_gem(name=SEARCH_GEM_NAME, prompt=prompt,
+                                           description=SEARCH_GEM_DESCRIPTION)
+        self.log(f"Gem '{SEARCH_GEM_NAME}' created (id: {gem.id})")
+        return gem.id
 
     # ── conversation state ────────────────────────────────
 
@@ -221,8 +283,9 @@ class GeminiCLI:
     # ── generate ──────────────────────────────────────────
 
     async def generate(self, sid: str, ts: str, prompt: str, files: list,
-                       chat_metadata: list | None = None, model: str | None = None):
-        """Returns (ok, response_text, new_metadata)."""
+                       chat_metadata: list | None = None, model: str | None = None,
+                       gem: str | None = None):
+        """Returns (ok, response_text, new_metadata, images)."""
         if self.client is None:
             self.client = GeminiClient(secure_1psid=sid, secure_1psidts=ts)
             await self.client.init()
@@ -234,11 +297,19 @@ class GeminiCLI:
                 kwargs["chat"] = ChatRef(chat_metadata)
             if model:
                 kwargs["model"] = model
+            if gem:
+                kwargs["gem"] = gem
             response = await self.client.generate_content(**kwargs)
             new_meta = list(response.metadata) if response.metadata else None
-            return True, response.text, new_meta
+            images = []
+            try:
+                for img in response.images:
+                    images.append({"url": img.url, "alt": img.alt or ""})
+            except Exception:
+                pass
+            return True, response.text, new_meta, images
         except Exception as e:
-            return False, str(e), None
+            return False, str(e), None, []
 
     # ── output ────────────────────────────────────────────
 
@@ -247,13 +318,16 @@ class GeminiCLI:
         return [{"lang": m[0], "code": m[1].strip()}
                 for m in re.findall(pattern, text, re.DOTALL)]
 
-    def emit(self, text: str, args, conv_state: dict | None = None):
+    def emit(self, text: str, args, conv_state: dict | None = None,
+             images: list | None = None):
         code = self.parse_code_blocks(text)
 
         if args.output:
             out_path = Path(args.output)
             if out_path.suffix.lower() == ".json":
                 payload = {"ok": True, "text": text, "code": code}
+                if images:
+                    payload["images"] = images
                 if conv_state:
                     payload["conversation"] = conv_state
                 out_path.write_text(json.dumps(payload, ensure_ascii=False),
@@ -269,6 +343,8 @@ class GeminiCLI:
 
         elif args.json:
             payload = {"ok": True, "text": text, "code": code}
+            if images:
+                payload["images"] = images
             if conv_state:
                 payload["conversation"] = conv_state
             print(json.dumps(payload, ensure_ascii=False))
@@ -337,6 +413,12 @@ Model selection (auto-discovered at runtime, no hardcoded names):
             help="Structured JSON for agent consumption")
         parser.add_argument("--brief", action="store_true",
             help="Prepend 'Be concise.' to the prompt for shorter responses")
+        parser.add_argument("-g", "--gem", type=str, metavar="GEM",
+            help="Gem ID or name to use as system prompt")
+        parser.add_argument("--list-gems", action="store_true",
+            help="Fetch and list available Gems, then exit")
+        parser.add_argument("--setup-search-gem", action="store_true",
+            help="Create or update the 'Gemini search' Gem with optimized search grounding prompt, then exit")
         parser.add_argument("-l", "--login", action="store_true",
             help="Open browser to sign into gemini.google.com and auto-capture cookies")
         parser.add_argument("-q", "--quiet", action="store_true",
@@ -405,10 +487,10 @@ Model selection (auto-discovered at runtime, no hardcoded names):
         # ── Auth ──
         sid = os.getenv("GEMINI_SID")
         ts = os.getenv("GEMINI_TS")
-        cookie_source = "env" if (sid and ts) else "browser"
-        if not sid or not ts:
+        cookie_source = "env" if sid else "browser"
+        if not sid:
             sid, ts = self.extract_cookies()
-        if not sid or not ts:
+        if not sid:
             if args.login:
                 sid, ts = self._browser_login_flow("browser")
             else:
@@ -416,8 +498,9 @@ Model selection (auto-discovered at runtime, no hardcoded names):
                 self.fail("AUTH_EXPIRED",
                     "No Gemini cookies. Use --login to sign in via browser, or set GEMINI_SID/GEMINI_TS env vars.")
 
-        # ── Model (init client early so resolve_model can query live list) ──
-        if args.model or args.list_models:
+        # ── Model / Gem (init client early so resolve_model can query live list) ──
+        need_client = args.model or args.list_models or args.gem or args.list_gems or args.setup_search_gem
+        if need_client:
             try:
                 self.client = GeminiClient(secure_1psid=sid, secure_1psidts=ts)
                 await self.client.init()
@@ -429,6 +512,34 @@ Model selection (auto-discovered at runtime, no hardcoded names):
             print(json.dumps({"ok": True, "models": [str(m) for m in models]},
                              ensure_ascii=False))
             return
+
+        if args.list_gems:
+            try:
+                gems_text = await self.fetch_and_list_gems()
+            except Exception as e:
+                self.fail("GEM_FETCH_FAILED", str(e))
+            print(gems_text)
+            return
+
+        if args.setup_search_gem:
+            try:
+                gem_id = await self.setup_search_gem()
+                print(json.dumps({"ok": True, "action": "setup_search_gem",
+                                  "gem_id": gem_id, "gem_name": SEARCH_GEM_NAME},
+                                 ensure_ascii=False))
+            except Exception as e:
+                self.fail("GEM_SETUP_FAILED", str(e))
+            return
+
+        # Resolve gem
+        gem_id = None
+        if args.gem:
+            try:
+                await self.client.fetch_gems()
+                gem_id = self.resolve_gem(args.gem)
+                self.log(f"Gem: {args.gem}" + (f" -> {gem_id}" if gem_id != args.gem else ""))
+            except Exception as e:
+                self.fail("GEM_FETCH_FAILED", str(e))
 
         model = self.resolve_model(args.model, args.thinking)
         if model:
@@ -442,8 +553,8 @@ Model selection (auto-discovered at runtime, no hardcoded names):
         for attempt in range(max_rounds):
             self.log(f"Attempt {attempt + 1}/{max_rounds}...")
 
-            ok, result, new_metadata = await self.generate(
-                sid, ts, prompt, all_files, chat_metadata, model)
+            ok, result, new_metadata, images = await self.generate(
+                sid, ts, prompt, all_files, chat_metadata, model, gem_id)
 
             if ok:
                 # Update conversation state from response metadata
@@ -453,7 +564,7 @@ Model selection (auto-discovered at runtime, no hardcoded names):
                     conv_state["turns"] += 1
                     self.save_conversation(args.conversation, conv_state)
 
-                self.emit(result, args, conv_state if args.conversation else None)
+                self.emit(result, args, conv_state if args.conversation else None, images)
                 return
 
             if not self.is_auth_error(result):
