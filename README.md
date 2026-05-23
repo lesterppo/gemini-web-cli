@@ -50,6 +50,7 @@ echo "What is 2+2?" | python gemini.py
 | File output (agent-optimized) | `-o FILE` |
 | Concise mode | `--brief` |
 | Silent mode | `-q` |
+| Gems (custom system prompts) | `-g GEM`, `--list-gems`, `--setup-search-gem` |
 | Browser login flow | `-l` / `--login` |
 | Auto-retry on auth expiry | default (disable with `--no-retry`) |
 | Zero-config auth | browser cookies or env vars |
@@ -124,6 +125,26 @@ Auto-quiet automatically suppresses stderr logs when stdout is piped (agent/subp
 | macOS | Chrome → Firefox → Safari | — |
 
 All platforms support `-l`/`--login` for first-run browser auth and `GEMINI_SID`/`GEMINI_TS` env vars as fallback.
+
+## gemini-search — Google Search via Gemini Web
+
+Built on top of gemini-cli, `gemini-search` triggers Gemini's native Google Search grounding and returns token-optimized JSON for downstream AI agents. Auto-sets up a Search Grounding Proxy Gem on first use.
+
+```bash
+# Structured search with AI synthesis
+./gemini-search "latest breakthroughs in fusion energy 2026"
+
+# Ultra-dense positional-array mode via Gem (auto-setup)
+./gemini-search "AI regulation updates" -g "Gemini search"
+
+# Image search — returns real CDN URLs
+./gemini-search "aurora borealis 2026 photos" -g "Gemini search"
+
+# Use stronger model, write to file
+./gemini-search "complex analysis" -m pro -o results.json
+```
+
+**Token efficiency:** Gem mode outputs ~350-1,400 bytes vs 1,500-5,700 in default mode. Positional arrays `[0,"fact"]` save ~30% over keyed objects. See [gemini-search/README.md](gemini-search/README.md) for full docs.
 
 ## AI Agent Skills
 
