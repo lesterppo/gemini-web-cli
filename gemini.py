@@ -69,7 +69,7 @@ class GeminiCLI:
 
     # ── auth ──────────────────────────────────────────────
 
-    def extract_cookies(self) -> tuple:
+    def extract_cookies(self, preferred: str | None = None) -> tuple:
         # Linux/Mac: Chrome first (most common on desktop Linux & WSL).
         # Windows: Firefox first (no admin needed, most reliable cookie DB).
         if sys.platform == 'win32':
@@ -86,6 +86,20 @@ class GeminiCLI:
                 ('edge', browser_cookie3.edge),
                 ('safari', browser_cookie3.safari),
             ]
+
+        # If a preferred browser is specified, try it first.
+        # Accept env var GEMINI_BROWSER or --browser flag.
+        if preferred:
+            preferred_lower = preferred.lower()
+            # Move preferred browser to front
+            for i, (name, _) in enumerate(browser_order):
+                if name == preferred_lower:
+                    browser_order.insert(0, browser_order.pop(i))
+                    self.log(f"Browser preference: {preferred_lower} (first)")
+                    break
+            else:
+                self.log(f"Unknown browser '{preferred}'; ignored. Available: {', '.join(n for n, _ in browser_order)}")
+
         for name, fetch_func in browser_order:
             try:
                 cj = fetch_func(domain_name='.google.com')
@@ -118,7 +132,7 @@ class GeminiCLI:
         self.log("Waiting for cookies (polling every 3s, 120s timeout)...")
         for i in range(40):
             time.sleep(3)
-            new_sid, new_ts = self.extract_cookies()
+            new_sid, new_ts = self.extract_cookies(preferred=self._browser_pref)
             if new_sid:
                 self.log(f"Cookies acquired after ~{(i + 1) * 3}s")
                 return new_sid, new_ts
@@ -421,6 +435,11 @@ Model selection (auto-discovered at runtime, no hardcoded names):
             help="Create or update the 'Gemini search' Gem with optimized search grounding prompt, then exit")
         parser.add_argument("-l", "--login", action="store_true",
             help="Open browser to sign into gemini.google.com and auto-capture cookies")
+        parser.add_argument("--browser", type=str, metavar="BROWSER",
+            choices=["chrome", "firefox", "edge", "safari"],
+            help="Preferred browser for cookie extraction (default: platform-specific). "
+                 "Also reads GEMINI_BROWSER env var. WSL/Linux defaults to chrome; "
+                 "set --browser firefox to use Firefox cookies.")
         parser.add_argument("-q", "--quiet", action="store_true",
             help="Suppress progress messages on stderr")
         parser.add_argument("--no-retry", action="store_true",
@@ -442,6 +461,8 @@ Model selection (auto-discovered at runtime, no hardcoded names):
         else:
             if not sys.stdin.isatty():
                 prompt = sys.stdin.read().strip()
+                if not prompt:
+                    self.fail("NO_PROMPT", "No prompt provided. Use positional args, -p, or pipe text via stdin.")
             else:
                 self.fail("NO_PROMPT", "No prompt provided. Use positional args, -p, or pipe text via stdin.")
 
@@ -487,9 +508,10 @@ Model selection (auto-discovered at runtime, no hardcoded names):
         # ── Auth ──
         sid = os.getenv("GEMINI_SID")
         ts = os.getenv("GEMINI_TS")
+        self._browser_pref = args.browser or os.getenv("GEMINI_BROWSER")
         cookie_source = "env" if sid else "browser"
         if not sid:
-            sid, ts = self.extract_cookies()
+            sid, ts = self.extract_cookies(preferred=self._browser_pref)
         if not sid:
             if args.login:
                 sid, ts = self._browser_login_flow("browser")
@@ -577,7 +599,7 @@ Model selection (auto-discovered at runtime, no hardcoded names):
 
             # Re-scan cookies first (may have been refreshed in another window)
             self.log("Re-scanning browser cookies...")
-            new_sid, new_ts = self.extract_cookies()
+            new_sid, new_ts = self.extract_cookies(preferred=self._browser_pref)
             if new_sid and new_sid != sid:
                 sid, ts = new_sid, new_ts
                 cookie_source = "browser"
