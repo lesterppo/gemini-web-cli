@@ -27,7 +27,7 @@ from pathlib import Path
 
 GEMINI_CLI = "gemini-cli"
 DEFAULT_MODEL = "flash"
-DEFAULT_TIMEOUT = 120
+DEFAULT_TIMEOUT = 60
 
 ERROR_CODES = {
     "E_SUBPROCESS": "gemini-cli subprocess failed",
