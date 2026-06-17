@@ -148,4 +148,8 @@ Built on top of gemini-cli, `gemini-search` triggers Gemini's native Google Sear
 
 ## AI Agent Skills
 
-The `skills/` directory contains reusable skill definitions for AI coding agents (Claude Code, Hermes, etc.) that describe how to invoke this tool with optimal token efficiency.
+**For AI coding agents (Claude Code, Hermes, Codex, etc.):** Load the `gemini-web-cli` skill from your skill registry for the full canonical procedures, pitfalls, WSL setup, and develop-review loop workflow.
+
+If you're an AI agent reading this repo directly: start with `AGENTS.md` and `skills/gemini-cli/SKILL.md`.
+
+The `skills/` directory contains reusable skill definitions that describe how to invoke this CLI with optimal token efficiency.

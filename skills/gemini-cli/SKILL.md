@@ -1,127 +1,81 @@
 ---
 name: gemini-web-cli
-description: Use when sending prompts, images, or documents to Google Gemini via zero-config browser-cookie CLI. Multi-turn conversations, dynamic model discovery, agent-optimized output. Triggered by: Gemini, visual review, screenshot analysis, image analysis, document analysis.
+description: Zero-config Gemini CLI via browser-cookie auth. No API key needed. Load this skill to use gemini-cli for text, image, document prompts, and multi-turn conversations.
 ---
 
-# gemini-web-cli — Zero-Config Gemini CLI
+# gemini-web-cli Skill
 
-Zero-config Python CLI for Google Gemini via browser-cookie auth. No API key needed.
+Zero-config Python CLI at `gemini.py` for Google Gemini via browser-cookie auth. No API key needed.
 
-Repo: https://github.com/lesterppo/gemini-web-cli
+**Repo:** https://github.com/lesterppo/gemini-web-cli
 
-## Platform Paths
+**Canonical skill:** Load `gemini-web-cli` from your AI agent's skill registry for full procedures, pitfalls, WSL setup, multi-turn patterns, and the develop-review loop. This file is the repo-bundled summary.
 
-| Platform | Command |
-|---|---|
-| **Any** | `python gemini.py` (from repo directory) |
-| **Linux/WSL** | `gemini-cli` (after adding wrapper to PATH) |
-
-## Quick Start
+## Quick Start (from repo)
 
 ```bash
-# First run — opens browser for login
-gemini-cli -l "Hello"
-
-# Text prompt
-gemini-cli "Explain quantum computing in 3 bullet points"
-
-# Image analysis
-gemini-cli -i chart.png "What trend does this show?"
-
-# Document analysis
-gemini-cli -f report.pdf "Summarize this"
-
-# Compare multiple images
-gemini-cli -i before.png -i after.png "What changed?"
-
-# Stdin pipe
-echo "What is 2+2?" | gemini-cli
+cd <repo> && python gemini.py -l "Hello"          # first run: login via browser
+python gemini.py "Explain quantum computing"       # text prompt
+python gemini.py -i chart.png "What trend?"        # image analysis
+python gemini.py -f report.pdf "Summarize"          # document analysis
+python gemini.py -c chat.json "Remember X"          # multi-turn (persist state)
+python gemini.py -c chat.json "What did I say?"     # continues conversation
 ```
 
 ## Agent-Optimized Invocation (always use -o)
 
 ```bash
-# Token cost: ~15-20 token pointer, response on disk
-gemini-cli -i ui.png "Review this" --json -o result.md
-
+python gemini.py -i ui.png "Review this" --json -o result.md
 # stdout: {"ok": true, "f": "./result.md", "s": 450, "b": 2}
+# ~15-20 tokens. Full response on disk.
 ```
-
-Read the output file only when needed. The pointer includes `b` (code block count) so the agent can decide whether to open it.
-
-**Do NOT use `--brief` by default.** Gemini should give full, natural responses. Reserve `--brief` only when the user explicitly asks for concise answers.
 
 ## Flags
 
 | Flag | Purpose |
 |---|---|
 | `-i FILE` | Attach image (repeatable) |
-| `-f FILE` | Attach document — PDF, TXT, CSV, etc. (repeatable) |
-| `-p TEXT` | Prompt via flag instead of positional |
-| `[prompt ...]` | Prompt as positional arguments (concatenated) |
-| *(stdin)* | Prompt piped from stdin |
-| `-c FILE` | Conversation state file for multi-turn chats |
-| `--new` | Start fresh conversation even if `-c` file exists |
-| `-m MODEL` | Model: `flash`, `pro`, `thinking`, or full ID. Auto-discovered at runtime |
-| `--thinking TIER` | Thinking level: `standard`, `plus`, `extended` [experimental] |
-| `--list-models` | Print available models and exit |
+| `-f FILE` | Attach document (repeatable) |
+| `-m MODEL` | `flash`, `pro`, `thinking`, or full ID |
+| `-c FILE` | Multi-turn conversation state file |
+| `--new` | Start fresh conversation |
+| `-o FILE` | Write response to file, stdout gets token pointer |
 | `--json` | Structured JSON output |
-| `-o FILE` | Write response to FILE, stdout gets ~15-20 token pointer |
-| `-l` / `--login` | Open browser to sign in and auto-capture cookies (for first-run or re-auth) |
-| `--brief` | Ask Gemini for concise responses (opt-in only) |
-| `-q` / `--quiet` | Suppress stderr progress (auto-enabled when piped) |
-| `--no-retry` | Disable auto-retry on auth expiry |
+| `-l` / `--login` | Open browser to sign in, auto-capture cookies |
+| `--browser` | Preferred browser: `firefox`, `chrome`, `edge`, `safari` |
+| `--list-models` | Print available models |
+| `--brief` | Ask for concise response (opt-in only) |
+| `-q` | Suppress stderr progress |
 
-## Multi-Turn Conversations
+## Auth
+
+- **Windows:** Firefox → Chrome → Edge → Safari
+- **Linux/macOS/WSL:** Chrome → Firefox → Edge → Safari
+- Override with `--browser <name>` or `GEMINI_BROWSER` env var
+- Fallback: `GEMINI_SID` / `GEMINI_TS` env vars
+
+### WSL Firefox Setup
+
+On WSL, `browser_cookie3.firefox` cannot find Windows Firefox profiles. Run:
 
 ```bash
-gemini-cli -c chat.json "My favorite color is blue."
-gemini-cli -c chat.json "What color did I say?"
-# → "The secret code you told me is 42."
-
-gemini-cli -c chat.json --new "Start fresh"
+python scripts/setup-wsl-firefox-cookies.py           # auto-detect & setup all
+python scripts/setup-wsl-firefox-cookies.py --list    # list available profiles
 ```
 
-## Model Selection
+This creates a symlinked `~/.mozilla/firefox/` profile pointing to your Windows Firefox cookies. After visiting gemini.google.com in Firefox, close Firefox so cookies flush to disk, then:
 
 ```bash
-gemini-cli -m flash "fast answer"
-gemini-cli -m pro "deep analysis"
-gemini-cli --list-models
+python scripts/refresh-cookies.py                     # extract & save to auth.json
 ```
 
-Models are discovered at runtime via `client.list_models()`. No hardcoded model names.
+## Pitfalls
 
-## Auth Architecture
-
-- **Windows:** Firefox first (no admin needed), then Chrome, Edge, Safari
-- **Linux/macOS/WSL:** Chrome first, then Firefox, Edge, Safari
-- **Fallback:** `GEMINI_SID` / `GEMINI_TS` env vars
-- **First-run:** `-l`/`--login` opens browser for login, polls every 3s for 120s
-- **Auto-retry:** On session expiry, re-scans cookies, then opens browser for re-auth
-
-## Output Pointer Format
-
-```json
-{"ok": true, "f": "./result.md", "s": 450, "b": 2}
-```
-
-| Key | Meaning |
-|---|---|
-| `f` | File path (relative when under cwd) |
-| `s` | Response size in bytes |
-| `b` | Number of extracted code blocks |
-| `c` | Conversation ID (only with `-c`) |
-| `t` | Turn number (only with `-c`) |
-
-## Token Budget (for AI agent planning)
-
-| Invocation | Agent token cost |
-|---|---|
-| `-o result.md` | ~15-20 tokens (pointer only) |
-| `-o result.md -c chat.json` | ~25-35 tokens |
-| `--json` (long response) | ~500-1,500 tokens (avoid in agent loops) |
-| Error | ~20-30 tokens |
+- **`__Secure-1PSIDTS` required:** The Token Server cookie is generated only during active Gemini use. Visit gemini.google.com in the browser first, close the browser, then extract cookies. Without TS, API calls time out.
+- **Firefox must be closed** before cookie extraction — Firefox writes cookies lazily to SQLite.
+- **Gemini cannot access local files** unless uploaded with `-f`.
+- **`-f` from subprocess with empty stdin:** Fixed — now fails fast with NO_PROMPT error.
+- **Timeout with large prompts + files:** Trim prompt to essentials, let files carry context.
 
 ## Dependencies
 
