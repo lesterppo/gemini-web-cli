@@ -23,12 +23,43 @@ cd <repo> && python gemini.py -m flash "your prompt" --json -o /tmp/result.md
 
 Read the output file only when needed. The pointer's `b` field tells you how many code blocks the response contains.
 
-### Multi-turn conversations
+### Full command surface (webapi)
 
 ```bash
+# Text / image / doc
+python gemini.py "prompt" -i img.png -f doc.pdf -o out.md --json
+
+# Multi-turn
 python gemini.py -m pro -c /tmp/session.json --new -f code.py "Review this" -o /tmp/r1.md
 python gemini.py -m pro -c /tmp/session.json -f code.py "Follow up" -o /tmp/r2.md
+
+# Streaming
+python gemini.py -S "tell me a joke"
+
+# Gems (custom system prompts)
+python gemini.py --list-gems
+python gemini.py --gem-info <ID_OR_NAME> --json
+echo "You are a code reviewer." | python gemini.py --create-gem "Reviewer" -d "code help"
+python gemini.py --edit-gem Reviewer -n "Reviewer v2" -p "Be very concise."
+python gemini.py --delete-gem Reviewer
+python gemini.py -g <GEM_ID> "chat with the gem"
+
+# Deep research (long-running)
+python gemini.py --deep-research "your research question" -o report.md
+
+# Chat management
+python gemini.py --list-chats
+python gemini.py --read-chat <CID> --limit 20
+python gemini.py --delete-chat <CID>
+
+# Account / models
+python gemini.py --account-status
+python gemini.py --list-models
 ```
+
+**Limitations:** Gem knowledge upload (files / GitHub code / NotebookLM) is a
+Gemini web-UI feature and is NOT exposed by `gemini_webapi` — do it in the
+browser. Deep research may not complete on all accounts (see skill pitfalls).
 
 ## Key files
 

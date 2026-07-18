@@ -51,6 +51,12 @@ echo "What is 2+2?" | python gemini.py
 | Concise mode | `--brief` |
 | Silent mode | `-q` |
 | Gems (custom system prompts) | `-g GEM`, `--list-gems`, `--setup-search-gem` |
+| Gem lifecycle (webapi) | `--gem-info ID`, `--create-gem NAME`, `--edit-gem ID`, `--delete-gem ID` |
+| Streaming output | `-S` / `--stream` |
+| Deep research | `--deep-research PROMPT` (long-running) |
+| Chat management | `--list-chats`, `--read-chat CID`, `--delete-chat CID` |
+| Account status | `--account-status` |
+| Download generated images | `--save-images DIR` |
 | Browser login flow | `-l` / `--login` |
 | Auto-retry on auth expiry | default (disable with `--no-retry`) |
 | Zero-config auth | browser cookies or env vars |
@@ -79,6 +85,87 @@ python gemini.py -c chat.json "What was the secret code?"
 # → "The secret code you told me is 42."
 
 python gemini.py -c chat.json --new "Start fresh"
+```
+
+### Gem Lifecycle (webapi)
+
+Full Gem CRUD via `gemini-webapi` (no browser automation needed):
+
+```bash
+# List all gems (system + user)
+python gemini.py --list-gems
+
+# Show full info (name, id, prompt, description) by id or name
+python gemini.py --gem-info <GEM_ID_OR_NAME> --json
+
+# Create a custom Gem (system prompt via -p or stdin; -d for description)
+echo "You are a helpful coding tutor. Be concise." | python gemini.py --create-gem "My Tutor" -d "coding help"
+python gemini.py --create-gem "My Tutor" -p "You are a helpful coding tutor." -d "coding help"
+
+# Edit a custom Gem (rename via -n, new prompt via -p/stdin, new desc via -d)
+python gemini.py --edit-gem <GEM_ID_OR_NAME> -n "My Tutor v2" -p "Be very concise."
+#   Predefined/system gems (e.g. "Writing editor") are protected and rejected.
+
+# Delete a custom Gem by id or name
+python gemini.py --delete-gem <GEM_ID_OR_NAME>
+
+# Chat with any Gem (system or custom)
+python gemini.py -g <GEM_ID_OR_NAME> "Explain Big-O notation in one sentence"
+```
+
+**Limitations (by design of `gemini-webapi`):** the web API surface exposes
+Gem CRUD + chat but **not** knowledge-file upload. `--create-gem` / `--edit-gem`
+have no `files=` slot, so uploading documents/images *into a Gem's knowledge
+base at creation* is unsupported through this CLI — do that in the Gemini web UI
+(`gemini.google.com/app`) or via a CDP-driven tool. Image generation in a Gem
+chat returns a CDN URL; use `--save-images DIR` to download the bytes to disk.
+
+### Streaming
+
+`-S` / `--stream` prints tokens as they arrive (no `-o`/`--json` wrapping):
+
+```bash
+echo "Explain Big-O in one sentence." | python gemini.py -S
+# tokens appear live on stdout
+```
+
+### Chat Management
+
+List, read, and delete conversations (chats) stored in your Gemini account:
+
+```bash
+# List recent conversations (cid, title, timestamp)
+python gemini.py --list-chats
+
+# Read a conversation's history by cid (last N turns via --limit)
+python gemini.py --read-chat c_24e06f62cd43a307 --limit 20
+
+# Delete a conversation by cid
+python gemini.py --delete-chat c_24e06f62cd43a307
+```
+
+### Deep Research
+
+`--deep-research PROMPT` runs a multi-step research task and waits for the
+final report. This is long-running (can take minutes). The web API requires an
+explicit confirmation step; the CLI handles plan → confirm → wait automatically:
+
+```bash
+python gemini.py --deep-research "Compare Z-score vs OCF/NI for bankruptcy prediction" -o report.md
+```
+
+> **Known limitation:** `gemini-webapi` (2.0.x) does not surface the
+> `research_id` after the confirmation step, so `wait_for_deep_research` cannot
+> always poll to completion on every account. If you see
+> `Cannot poll deep research status: plan.research_id is missing`, the task did
+> not start server-side — retry, or run deep research in the Gemini web UI.
+
+### Account Status
+
+Probe account capabilities (deep-research availability, quota, caps):
+
+```bash
+python gemini.py --account-status
 ```
 
 ## Agent-Optimized Output
