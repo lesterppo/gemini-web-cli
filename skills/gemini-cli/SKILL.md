@@ -1,6 +1,6 @@
 ---
 name: gemini-web-cli
-description: Zero-config Gemini CLI via browser-cookie auth. No API key needed. Load this skill to use gemini-cli for text, image, document prompts, multi-turn chats, Gem CRUD, deep research, and chat management.
+description: Gemini CLI via browser cookies for chat, Gems, and research.
 ---
 
 # gemini-web-cli Skill
