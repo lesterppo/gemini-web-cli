@@ -37,6 +37,8 @@ echo "What is 2+2?" | python gemini.py
 
 ## Features
 
+Current Gemini model lineup (mid-2026): **3.6 Flash**, **3.5 Flash-Lite**, **3.1 Pro** (+ thinking variants). Models are auto-discovered at runtime — shorthands below always resolve correctly.
+
 | Feature | Flag |
 |---|---|
 | Text prompts | positional args, `-p`, or stdin |
@@ -73,6 +75,7 @@ python gemini.py --list-models
 python gemini.py -m flash "fast answer"
 python gemini.py -m pro "deep analysis"
 python gemini.py -m thinking "logic puzzle"
+python gemini.py -m lite "quick question, low cost"
 ```
 
 ### Multi-Turn Conversations
