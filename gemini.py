@@ -158,6 +158,16 @@ class GeminiCLI:
         "extended": "ADVANCED", "advanced": "ADVANCED",
     }
 
+    # Lite model has no Model enum entry — construct custom dict
+    _LITE_MODEL_DICT = {
+        "model_name": "gemini-3.5-flash-lite",
+        "model_header": {
+            "x-goog-ext-525001261-jspb": '[1,null,null,null,"8c46e95b1a07cecc",null,null,0,[4],null,null,1]',
+            "x-goog-ext-73010989-jspb": "[0]",
+            "x-goog-ext-73010990-jspb": "[0]",
+        },
+    }
+
     def resolve_model(self, user_input: str | None,
                       thinking: str | None = None):
         """Resolve model selection. Returns a Model enum when thinking tier
@@ -172,8 +182,8 @@ class GeminiCLI:
             if mtype is None:
                 return user_input  # pass through, let server reject
             if mtype == "LITE":
-                # Lite doesn't have thinking tiers, return as string
-                return self._resolve_string(user_input)
+                # Lite has no Model enum entry — return custom dict
+                return dict(self._LITE_MODEL_DICT)
             try:
                 from gemini_webapi.client import Model
                 return Model[f"{tier}_{mtype}"]
@@ -219,9 +229,7 @@ class GeminiCLI:
             if pro:
                 return _prefer_api_name(pro)
         if q in ("lite", "cheap", "small"):
-            lite = [v for k, v in name_map.items() if "lite" in k]
-            if lite:
-                return lite[0]
+            return dict(self._LITE_MODEL_DICT)
 
         return user_input
 
@@ -930,7 +938,12 @@ Model selection (auto-discovered at runtime, no hardcoded names):
 
         model = self.resolve_model(args.model, args.thinking)
         if model:
-            label = model.name if hasattr(model, 'name') else model
+            if hasattr(model, 'name'):
+                label = model.name
+            elif isinstance(model, dict):
+                label = model.get("model_name", "lite")
+            else:
+                label = model
             tier = f" ({args.thinking})" if args.thinking else ""
             self.log(f"Model: {label}{tier}")
 
