@@ -49,6 +49,41 @@ SEARCH_GEM_NAME = "Gemini search"
 SEARCH_GEM_DESCRIPTION = "Headless Search Grounding Proxy — returns ultra-dense positional-array JSON (txt + img modes) for AI agent consumption"
 SEARCH_GEM_PROMPT_FILE = Path(__file__).resolve().parent / "search-gem-prompt.txt"
 
+# ── Shared Gem URL parsing ──────────────────────────────────
+
+_GEM_URL_RE = re.compile(r'gemini\.google\.com/gem/([a-zA-Z0-9_-]+)')
+
+def extract_gem_id(url: str) -> str:
+    """Extract Gem ID from a shared URL like https://gemini.google.com/gem/AbCdEf1234.
+    Also accepts a raw Gem ID string."""
+    m = _GEM_URL_RE.search(url)
+    if m:
+        return m.group(1)
+    if '/' not in url and ' ' not in url and len(url) >= 5:
+        return url
+    raise ValueError(f"Cannot extract Gem ID from: {url}")
+
+
+# ── Image generation detection ──────────────────────────────
+
+_IMAGE_GEN_STARTS = [
+    "generate an image", "create an image", "make an image",
+    "draw a", "generate a photo", "create a picture",
+]
+
+_IMAGE_GEN_KEYWORDS = _IMAGE_GEN_STARTS + [
+    "show me a picture", "show me an image",
+    "generate", "create", "draw", "illustrate", "paint",
+]
+
+def looks_like_image_gen(prompt: str) -> bool:
+    """Heuristic: does this prompt look like an image generation request?"""
+    p = prompt.lower().strip()
+    for kw in _IMAGE_GEN_STARTS:
+        if p.startswith(kw):
+            return True
+    return sum(1 for kw in _IMAGE_GEN_KEYWORDS if kw in p) >= 2
+
 
 class ChatRef:
     """Thin wrapper so gemini_webapi can read .metadata from the chat parameter."""
@@ -705,6 +740,12 @@ Model selection (auto-discovered at runtime, no hardcoded names):
             help="Create or update the 'Gemini search' Gem with optimized search grounding prompt, then exit")
         parser.add_argument("-l", "--login", action="store_true",
             help="Open browser to sign into gemini.google.com and auto-capture cookies")
+        parser.add_argument("--init", action="store_true",
+            help="Cache auth tokens from browser cookies to ~/.gemini-cli/auth.json, then exit")
+        parser.add_argument("--img", type=str, dest="image_prompt", metavar="PROMPT",
+            help="Shortcut for image generation (prepends 'Generate an image: ')")
+        parser.add_argument("--img-gen", action="store_true", dest="image_gen",
+            help="Mark the prompt as an image generation request")
         parser.add_argument("--browser", type=str, metavar="BROWSER",
             choices=["chrome", "firefox", "edge", "safari"],
             help="Preferred browser for cookie extraction (default: platform-specific). "
@@ -721,6 +762,27 @@ Model selection (auto-discovered at runtime, no hardcoded names):
             args.quiet = True
         self.quiet = args.quiet
 
+        # ── --init: cache auth and exit (no client needed) ──
+        if args.init:
+            if not args.quiet:
+                print("[gemini] Extracting auth tokens from browser...", file=sys.stderr)
+            sid = os.getenv("GEMINI_SID")
+            ts = os.getenv("GEMINI_TS")
+            if not sid:
+                sid, ts = self.extract_cookies(preferred=args.browser or os.getenv("GEMINI_BROWSER"))
+            if sid:
+                AUTH_CACHE = Path.home() / ".gemini-cli" / "auth.json"
+                AUTH_CACHE.parent.mkdir(parents=True, exist_ok=True)
+                AUTH_CACHE.write_text(json.dumps({
+                    "__Secure-1PSID": sid, "__Secure-1PSIDTS": ts or ""
+                }))
+                print(json.dumps({"ok": True, "action": "init",
+                                  "cached": str(AUTH_CACHE)}, ensure_ascii=False))
+            else:
+                self.fail("AUTH_EXPIRED",
+                    "No cookies found. Sign in at gemini.google.com first, or use --login.")
+            return
+
         # ── Build prompt ──
         # Flags that don't need a generation prompt (read-only / exit-early).
         no_prompt_needed = (args.list_models or args.list_gems or args.setup_search_gem
@@ -729,6 +791,9 @@ Model selection (auto-discovered at runtime, no hardcoded names):
                                or args.account_status)
         if args.prompt_str:
             prompt = args.prompt_str
+        elif args.image_prompt:
+            prompt = f"Generate an image: {args.image_prompt}"
+            args.image_gen = True
         elif args.deep_research:
             # deep-research prompt lives in the flag value
             prompt = args.deep_research
@@ -738,6 +803,8 @@ Model selection (auto-discovered at runtime, no hardcoded names):
             prompt = ""  # no prompt needed
         elif no_prompt_needed:
             prompt = ""  # create/list/edit/delete/info don't generate
+        elif args.image_gen:
+            prompt = "Generate an image."
         else:
             if not sys.stdin.isatty():
                 prompt = sys.stdin.read().strip()
@@ -748,6 +815,10 @@ Model selection (auto-discovered at runtime, no hardcoded names):
 
         if args.brief and not prompt.startswith("Be concise"):
             prompt = "Be concise. " + prompt
+
+        # Auto-detect image generation prompts
+        if not args.image_gen and prompt and looks_like_image_gen(prompt):
+            args.image_gen = True
 
         # ── Conversation state ──
         conv_state = None
@@ -926,17 +997,25 @@ Model selection (auto-discovered at runtime, no hardcoded names):
                 self.fail("DEEP_RESEARCH_FAILED", str(e))
             return
 
-        # Resolve gem
+        # Resolve gem (supports shared URLs and raw Gem IDs)
         gem_id = None
         if args.gem:
             try:
+                gem_arg = extract_gem_id(args.gem)
+            except ValueError:
+                gem_arg = args.gem  # plain name, let resolve_gem handle it
+            try:
                 await self.client.fetch_gems()
-                gem_id = self.resolve_gem(args.gem)
+                gem_id = self.resolve_gem(gem_arg)
                 self.log(f"Gem: {args.gem}" + (f" -> {gem_id}" if gem_id != args.gem else ""))
             except Exception as e:
                 self.fail("GEM_FETCH_FAILED", str(e))
 
         model = self.resolve_model(args.model, args.thinking)
+        # Force flash for image generation (Pro can't generate images)
+        if args.image_gen and not model:
+            from gemini_webapi.client import Model
+            model = Model.BASIC_FLASH
         if model:
             if hasattr(model, 'name'):
                 label = model.name
