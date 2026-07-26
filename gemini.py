@@ -195,7 +195,7 @@ class GeminiCLI:
 
     # Lite model has no Model enum entry — construct custom dict
     _LITE_MODEL_DICT = {
-        "model_name": "gemini-3.5-flash-lite",
+        "model_name": "Flash-Lite",
         "model_header": {
             "x-goog-ext-525001261-jspb": '[1,null,null,null,"8c46e95b1a07cecc",null,null,0,[4],null,null,1]',
             "x-goog-ext-73010989-jspb": "[0]",
@@ -482,26 +482,77 @@ class GeminiCLI:
 
     # ── account status ──
     async def cmd_account_status(self):
+        """Show account identity, status, models, and usage limits."""
         try:
             st = await self.client.inspect_account_status()
         except Exception as e:
             self.fail("ACCOUNT_STATUS_FAILED", str(e))
-        # Dump the full probe structure (summary may be empty depending on account).
-        out = {}
-        for attr in ("summary", "source_path", "account_path"):
-            v = getattr(st, attr, None)
-            if v is not None:
-                out[attr] = v
-        # also surface any top-level dict fields
-        if hasattr(st, "dict"):
-            try:
-                full = st.dict()
-                if isinstance(full, dict):
-                    out = full
-            except Exception:
-                pass
-        print(json.dumps({"ok": True, "account_status": out},
-                         ensure_ascii=False, default=str))
+
+        out = {
+            "ok": True,
+            "status_code": int(getattr(self.client, "account_status", 0)),
+            "status_name": getattr(self.client.account_status, "name", "unknown"),
+            "status_desc": getattr(self.client.account_status, "description", ""),
+            "language": getattr(self.client, "language", "unknown"),
+            "build": getattr(self.client, "build_label", "unknown"),
+        }
+
+        # ── Email from HTML ──
+        try:
+            r = await self.client.client.get("https://gemini.google.com/app")
+            emails = set(re.findall(r'[\w.+-]+@gmail\.com', r.text))
+            out["emails"] = sorted(emails)
+        except Exception:
+            out["emails"] = []
+
+        # ── Models ──
+        try:
+            out["available_models"] = [str(m) for m in self.client.list_models()]
+        except Exception:
+            out["available_models"] = []
+
+        # ── Quota / usage limits ──
+        try:
+            from gemini_webapi.constants import GRPC
+            from gemini_webapi.client import RPCData
+            from gemini_webapi.utils.parsing import extract_json_from_response, get_nested_value
+            resp = await self.client._batch_execute([
+                RPCData(rpcid=GRPC.DEEP_RESEARCH_MODEL_STATE,
+                        payload="[[[1,11],[2,11],[6,11]]]"),
+                RPCData(rpcid=GRPC.DEEP_RESEARCH_MODEL_STATE,
+                        payload="[[[1,4],[2,4],[6,4]]]"),
+            ])
+            parts = extract_json_from_response(resp.text)
+            quotas = []
+            model_hints = {4: "pro", 11: "flash"}
+            for part in parts:
+                body_str = get_nested_value(part, [2])
+                if not body_str: continue
+                body = json.loads(body_str)
+                entries = body[0] if isinstance(body, list) and body else []
+                for entry in entries:
+                    if not isinstance(entry, list) or len(entry) < 6: continue
+                    mt = entry[0][1] if entry[0] else None
+                    quotas.append({
+                        "model_type": mt,
+                        "model_hint": model_hints.get(mt, "unknown"),
+                        "daily_limit": entry[4],
+                        "used": entry[5],
+                        "remaining": entry[4] - entry[5] if entry[4] and entry[5] else None,
+                    })
+            out["quota"] = quotas
+        except Exception as e:
+            out["quota"] = []
+            out["quota_error"] = str(e)[:80]
+
+        # ── Gems summary ──
+        try:
+            await self.client.fetch_gems()
+            out["gem_count"] = len(self.client.gems)
+        except Exception:
+            out["gem_count"] = -1
+
+        print(json.dumps(out, ensure_ascii=False, default=str))
 
     # ── conversation state ────────────────────────────────
 

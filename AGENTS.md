@@ -66,11 +66,43 @@ browser. Deep research may not complete on all accounts (see skill pitfalls).
 | File | Purpose |
 |---|---|
 | `gemini.py` | Main CLI — self-contained, zero install beyond pip deps |
+| `AGENTS.md` | This file — AI agent discoverability |
 | `gemini-search` | Google Search via Gemini with AI synthesis |
 | `scripts/setup-wsl-firefox-cookies.py` | WSL Firefox cookie extraction setup |
 | `scripts/refresh-cookies.py` | Extract and save Gemini auth cookies |
 | `skills/gemini-cli/SKILL.md` | Skill definition for AI agents |
 | `search-gem-prompt.txt` | Prompt template for Gemini Search Grounding |
+
+## New features (2026-07-26)
+
+### Direct chat (no Gem required)
+Previously required a Gem URL or `-g <id>`. Now works without either:
+
+```bash
+python gemini.py -p "prompt"           # direct chat via -p flag
+echo "prompt" | python gemini.py       # direct chat via stdin
+python gemini.py -m pro -p "prompt"    # direct chat with any model
+python gemini.py -m lite -p "prompt"   # Flash-Lite model (fastest)
+```
+
+### Enhanced --account-status
+Shows email identity, quota/usage limits, and model access:
+
+```bash
+python gemini.py --account-status --json
+# → {emails: [...], status_code: 1000, quota: [{model_hint:"flash", daily_limit:1200, used:797, remaining:403}, ...], gem_count: N, ...}
+```
+
+**Quota fields:** `model_type` (4=pro, 11=flash), `daily_limit`, `used`, `remaining`. Different accounts may have different limits — use this to check before running expensive workflows.
+
+### Multi-turn direct chat
+```bash
+python gemini.py -c sess.json --new -p "My secret is X"     # Turn 1
+python gemini.py -c sess.json -p "What was my secret?"       # Turn 2 (recalls X)
+```
+
+## Model names
+Valid model strings: `Flash-Lite` (via `-m lite`), `gemini-3-flash` (via `-m flash`), `gemini-3-pro` (via `-m pro`).
 
 ## Platform notes
 
